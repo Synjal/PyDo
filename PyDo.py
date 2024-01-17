@@ -1,27 +1,46 @@
-from tkcalendar import DateEntry
+import tkinter
 from datetime import datetime
 from tkinter import *
+from tkinter import ttk
+from tkinter.ttk import *
 
+from PIL import ImageTk, Image
+
+import customtkinter
 import mysql.connector
-
+from customtkinter import CTkToplevel, CTkLabel
+from tkcalendar import DateEntry
 from Task import Task
+
+createDB = "CREATE DATABASE IF NOT EXISTS pydo"
+createTable = "CREATE TABLE IF NOT EXISTS task (" \
+							"id int NOT NULL AUTO_INCREMENT," \
+							"name VARCHAR(255) COLLATE utf8mb4_bin NOT NULL," \
+							"startDate date DEFAULT NULL," \
+							"endDate date DEFAULT NULL," \
+							"goalDate date NOT NULL," \
+							"state TINYINT NOT NULL DEFAULT '0' COMMENT '0 = To do\r\n1 = Running\r\n2 = Finished'," \
+							"PRIMARY KEY (id))"
 
 database = mysql.connector.connect(
 	host='localhost',
 	user='root',
 	password='',
-	database='pydo'
 )
 cursor = database.cursor()
+
+cursor.execute(createDB)
+database.database = 'pydo'
+cursor.execute(createTable)
+
 taskList = []
 
 
 def clean():
 	entry.delete(0, END)
-	ListName.delete(0, END)
-	ListGoalDate.delete(0, END)
-	ListState.delete(0, END)
+
 	taskList.clear()
+	tree.delete(*tree.get_children())
 
 	select = "SELECT * FROM task"
 	cursor.execute(select)
@@ -32,42 +51,52 @@ def clean():
 
 
 def dbShow():
-	if showFinished['text'] == 'Show tasks':
+	clean()
+
+	if switch.get() != 'Off':
 		showFinishedTasks()
 		return
 
-	clean()
+	for task in taskList:
+		state = "Not started" if task.state == 0 else "Started"
+		if task.state != 2:
+			startDate = task.startDate.strftime("%d/%m/%Y") if task.startDate is not None else ""
+			endDate = task.endDate.strftime("%d/%m/%Y") if task.endDate is not None else ""
+			goalDate = task.goalDate.strftime("%d/%m/%Y") if task.goalDate is not None else ""
+			tree.insert('', END, values=(task.name, state, startDate, endDate, goalDate), tags=(task.state,))
 
-	for i in range(len(taskList)):
-		match taskList[i].state:
-			case 0:
-				state = 'Not started'
-			case 1:
-				state = 'Started'
-		if taskList[i].state != 2:
-			ListName.insert(i, taskList[i].name)
-			if taskList[i].goalDate is not None:
-				ListGoalDate.insert(i, taskList[i].goalDate.strftime("%x"))
-			ListState.insert(i, state)
+	colorTree()
 
 
 def showFinishedTasks():
 	clean()
-	for i in range(len(taskList)):
-		if taskList[i].state == 2:
-			ListName.insert(i, taskList[i].name)
-			if taskList[i].goalDate is not None:
-				ListGoalDate.insert(i, taskList[i].goalDate.strftime("%x"))
-			ListState.insert(i, 'Finished')
+
+	for task in taskList:
+		match task.state:
+			case 0:
+				state = "Not started"
+			case 1:
+				state = "Started"
+			case 2:
+				state = "Finished"
+		startDate = task.startDate.strftime("%d/%m/%Y") if task.startDate is not None else ""
+		endDate = task.endDate.strftime("%d/%m/%Y") if task.endDate is not None else ""
+		goalDate = task.goalDate.strftime("%d/%m/%Y") if task.goalDate is not None else ""
+		tree.insert('', END, values=(task.name, state, startDate, endDate, goalDate), tags=(task.state,))
+	colorTree()
+
+
+def colorTree():
+	tree.tag_configure('0', background='#DB949B')
+	tree.tag_configure('1', background='#FFD085')
+	tree.tag_configure('2', background='#98D7AE')
 
 
 def FinishedTasks():
-	if showFinished['text'] != 'Show finished tasks':
-		showFinished['text'] = 'Show finished tasks'
+	if switch.cget("text") != 'On':
 		dbShow()
 		return
 
-	showFinished['text'] = 'Show tasks'
 	showFinishedTasks()
 
 
@@ -80,21 +109,22 @@ def addEntry():
 
 
 def deleteEntry():
-	sql = "DELETE FROM task WHERE	name = '" + ListName.get(ListName.curselection()) + "'"
+	sql = "DELETE FROM task WHERE	name = '" + tree.item(tree.focus()).get("values")[0] + "'"
 	cursor.execute(sql)
 	database.commit()
 	dbShow()
 
 
 def updateNameEntry():
-	sql = "UPDATE task SET name = '" + entry.get() + "' WHERE	name = '" + ListName.get(ListName.curselection()) + "'"
+	sql = "UPDATE task SET name = '" + entry.get() + "' WHERE	name = '" + tree.item(tree.focus()).get("values")[0] + "'"
 	cursor.execute(sql)
 	database.commit()
 	dbShow()
 
 
 def updateGoalDateEntry():
-	sql = "UPDATE task SET goalDate = '" + entry.get() + "' WHERE	name = '" + ListName.get(ListName.curselection()) + "'"
+	sql = "UPDATE task SET goalDate = '" + entry.get() + "' \
+				 WHERE	name = '" + tree.item(tree.focus()).get("values")[0] + "'"
 	cursor.execute(sql)
 	database.commit()
 	dbShow()
@@ -102,8 +132,7 @@ def updateGoalDateEntry():
 
 def startTask():
 	sql = "UPDATE task SET startDate = '" + datetime.now().strftime(
-		"%Y-%m-%d") + "', state = '1' WHERE	name = '" + ListName.get(
-		ListName.curselection()) + "'"
+		"%Y-%m-%d") + "', state = '1' WHERE	name = '" + tree.item(tree.focus()).get("values")[0] + "'"
 	cursor.execute(sql)
 	database.commit()
 	dbShow()
@@ -111,96 +140,89 @@ def startTask():
 
 def endTask():
 	sql = "UPDATE task SET endDate = '" + datetime.now().strftime(
-		"%Y-%m-%d") + "', state = '2' WHERE name = '" + ListName.get(
-		ListName.curselection()) + "'"
+		"%Y-%m-%d") + "', state = '2' WHERE name = '" + tree.item(tree.focus()).get("values")[0] + "'"
 	cursor.execute(sql)
 	database.commit()
 	dbShow()
-
-
-def updateNameAndGoalEntry(ID, name, goalDate):
-	sql = "UPDATE task SET name = '" + name + "', goalDate = '" + goalDate + "' WHERE id = " + str(ID)
-	cursor.execute(sql)
-	database.commit()
-	dbShow()
-
-
-def buttons(event):
-	new['state'] = DISABLED if entry.get() == "" else NORMAL
-	update['state'] = DISABLED if entry.get() == "" else NORMAL
-
-
-def clickNormal(event):
-	start['state'] = NORMAL
-	finished['state'] = NORMAL
-	delete['state'] = NORMAL
-	date['state'] = NORMAL
-
-
-def clickDisable(event):
-	start['state'] = DISABLED
-	finished['state'] = DISABLED
-	delete['state'] = DISABLED
-	date['state'] = DISABLED
 
 
 def popupCalendar():
 	def setGoalDate():
-		sql = "UPDATE task SET goalDate = '" + str(cal.get_date()) + "' WHERE	name = '" + ListName.get(
-			ListName.curselection()) + "'"
+		sql = "UPDATE task SET goalDate = '" + str(cal.get_date()) + "' \
+					 WHERE	name = '" + tree.item(tree.focus()).get("values")[0] + "'"
 		cursor.execute(sql)
 		database.commit()
 		dbShow()
 
-	top = Toplevel(root)
-	top.geometry('200x150')
+	top = CTkToplevel(root)
+	top.title("Date picker")
+	top.geometry('300x200')
 	top.resizable(False, False)
-	Label(top, text='Choose date').pack(padx=10, pady=10)
-	cal = DateEntry(top, width=12, background='darkblue', foreground='white', borderwidth=2)
+	top.focus()
+	style.theme_use("clam")
+	style.configure("DateEntry", bordercolor="#A0E014", fieldbackground="#242424", background="#242424",
+									foreground="#A0E014")
+	CTkLabel(top, text='Set the deadline', text_color='#A0E014').pack(padx=10, pady=10)
+	cal = DateEntry(top, width=12, background='#343638', borderwidth=2, anchor='w', justify='center')
 	cal.pack(padx=10, pady=10)
-	Button(top, text='Set', command=setGoalDate).pack(padx=10)
+	tkinter.Button(top, command=setGoalDate, image=addIcon, bg='#242424', borderwidth=0).pack(padx=10, pady=10)
 
 
-root = Tk()
+customtkinter.set_appearance_mode("System")
+customtkinter.set_default_color_theme("blue")
+
+root = customtkinter.CTk()
 root.title('PyDo')
-root.geometry('500x550')
+root.geometry('600x550')
 root.resizable(False, False)
+style = ttk.Style()
+style.theme_use("clam")
+style.configure("Treeview.Heading", background="#343638", foreground="#A0E014",
+								font=("Helvetica", 13, 'bold'), borderwidth=0)
+style.configure("Treeview", fieldbackground="#242424", font=("Helvetica", 12),
+								bordercolor="#A0E014")
 
-entry = Entry(root, width=60)
-entry.bind('<Key>', buttons)
-entry.place(x=20, y=20)
+acceptIcon = ImageTk.PhotoImage(Image.open("assets/accept.png").resize((60, 60)))
+deleteIcon = ImageTk.PhotoImage(Image.open("assets/delete.png").resize((60, 60)))
+playIcon = ImageTk.PhotoImage(Image.open("assets/play.png").resize((60, 60)))
+updateIcon = ImageTk.PhotoImage(Image.open("assets/refresh.png").resize((60, 60)))
+dateIcon = ImageTk.PhotoImage(Image.open("assets/settings.png").resize((60, 60)))
+addIcon = ImageTk.PhotoImage(Image.open("assets/favourite.png").resize((60, 60)))
 
-Label(root, text='Tasks :'	 ).place(x=20 , y=80)
-Label(root, text='State :'	 ).place(x=205, y=80)
-Label(root, text='Deadline :').place(x=330, y=80)
+entry = customtkinter.CTkEntry(root, width=420, border_color='#A0E014')
+switch = customtkinter.CTkSwitch(root, text="Show all", command=FinishedTasks,
+																 variable=customtkinter.StringVar(value='Off'), onvalue="On", offvalue="Off",
+																 progress_color='#A0E014', text_color="#A0E014")
 
-ListName = 		 Listbox(root, width=30, height=22, activestyle=DOTBOX, selectmode=SINGLE)
-ListGoalDate = Listbox(root, width=20, height=22, activestyle=DOTBOX, selectmode=SINGLE)
-ListState = 	 Listbox(root, width=20, height=22, activestyle=DOTBOX, selectmode=SINGLE)
+columns = ('Tasks', 'State', 'Start', 'End', 'Deadline')
+tree = ttk.Treeview(root, columns=columns, height=22, show='headings')
+tree.column("# 1", width=300, anchor=S)
+tree.column("# 2", width=90, anchor=S)
+tree.column("# 3", width=90, anchor=S)
+tree.column("# 4", width=90, anchor=S)
+tree.column("# 5", width=90, anchor=S)
+tree.heading('Tasks', text='Tasks')
+tree.heading('State', text='Status')
+tree.heading('Start', text='Started')
+tree.heading('End', text='Ended')
+tree.heading('Deadline', text='Deadline')
 
-ListName.bind(		'<<ListboxSelect>>', clickNormal)
-ListGoalDate.bind('<<ListboxSelect>>', clickDisable)
-ListState.bind(		'<<ListboxSelect>>', clickDisable)
+new = tkinter.Button(root, command=addEntry, image=addIcon, bg='#242424', borderwidth=0)
+date = tkinter.Button(root, command=popupCalendar, image=dateIcon, bg='#242424', borderwidth=0)
+start = tkinter.Button(root, command=startTask, image=playIcon, bg='#242424', borderwidth=0)
+finished = tkinter.Button(root, command=endTask, image=acceptIcon, bg='#242424', borderwidth=0)
+update = tkinter.Button(root, command=updateNameEntry, image=updateIcon, bg='#242424', borderwidth=0)
+delete = tkinter.Button(root, command=deleteEntry, image=deleteIcon, bg='#242424', borderwidth=0)
 
-ListName.place(		 x=20 , y=100)
-ListGoalDate.place(x=330, y=100)
-ListState.place(	 x=205, y=100)
-
-new 		 		 = Button(root, text='New task'						, width=12, command=addEntry			 , state=DISABLED)
-date 		 		 = Button(root, text='Set a deadline' 		, width=12, command=popupCalendar	 , state=DISABLED)
-start 	 		 = Button(root, text='Start'   						, width=13, command=startTask			 , state=DISABLED)
-finished 		 = Button(root, text='Done'		    				, width=13, command=endTask				 , state=DISABLED)
-update 	 		 = Button(root, text='Update'  						, width=13, command=updateNameEntry, state=DISABLED)
-delete 	 		 = Button(root, text='Delete'  						, width=13, command=deleteEntry		 , state=DISABLED)
-showFinished = Button(root, text='Show finished tasks', width=65, command=FinishedTasks)
-
-new.place(				 x=400, y=20 )
-date.place(				 x=400, y=47 )
-start.place(			 x=20 , y=480)
-finished.place(		 x=140, y=480)
-update.place(			 x=260, y=480)
-delete.place(			 x=380, y=480)
-showFinished.place(x=16 , y=510)
+entry.place(x=33, y=20)
+tree.place(x=40, y=120)
+switch.place(x=35, y=60)
+new.place(x=580, y=10)
+date.place(x=650, y=10)
+start.place(x=40, y=603)
+update.place(x=243, y=603)
+finished.place(x=447, y=603)
+delete.place(x=650, y=603)
 
 dbShow()
 root.mainloop()
